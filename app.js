@@ -270,8 +270,18 @@ async function ensureMicPermission() {
     return { ok: true, note: "no-getUserMedia" };
   }
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach((t) => t.stop());
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    setTimeout(() => {
+      try {
+        stream.getTracks().forEach((t) => t.stop());
+      } catch {}
+    }, 400);
     const warn = $("#warn");
     if (warn) {
       warn.hidden = true;
@@ -291,6 +301,87 @@ async function ensureMicPermission() {
   }
 }
 
+function createRecognizer() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return null;
+  const lang = state.settings.lang || "en-US";
+  const rec = new SR();
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.maxAlternatives = 1;
+  rec.lang = lang;
+
+  rec.onresult = (e) => {
+    let interim = "";
+    let finalChunk = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) finalChunk += t;
+      else interim += t;
+    }
+    if (finalChunk) {
+      state.finalText = (state.finalText + " " + finalChunk).trim();
+      state.lastSpeechAt = Date.now();
+    }
+    if (interim) {
+      state.interim = interim;
+      state.lastSpeechAt = Date.now();
+    }
+    const shown = (state.finalText + " " + interim).trim();
+    state.live = shown || "Listening... speak now.";
+    renderLive();
+    if (shown) scheduleSilenceCheck();
+  };
+
+  rec.onerror = (e) => {
+    const code = e.error || "";
+    if (code === "not-allowed" || code === "service-not-allowed") {
+      state.live = "Microphone blocked. Allow mic or type your answer.";
+      renderLive();
+      const warn = $("#warn");
+      if (warn) {
+        warn.hidden = false;
+        warn.textContent = "Allow the microphone in the address bar, then click the mic again.";
+      }
+    } else if (code === "audio-capture") {
+      state.live = "No microphone found. Plug in a mic or type your answer.";
+      renderLive();
+    } else if (code === "network") {
+      state.live =
+        "Speech network error (Chrome needs internet for voice). Type your answer below.";
+      renderLive();
+      const warn = $("#warn");
+      if (warn) {
+        warn.hidden = false;
+        warn.textContent =
+          "Chrome speech needs an internet connection. Check Wi-Fi, then try again, or type.";
+      }
+    } else if (code === "no-speech" || code === "aborted") {
+      // restart handled in onend
+    } else {
+      state.live = "Mic error: " + code + ". You can type your answer.";
+      renderLive();
+    }
+  };
+
+  rec.onend = () => {
+    if (state.phase !== "listening" || !state.active) return;
+    if (state.finalText && state.lastSpeechAt && Date.now() - state.lastSpeechAt >= 1200) {
+      scheduleSilenceCheck();
+      return;
+    }
+    setTimeout(() => {
+      if (state.phase === "listening" && state.active && state.recognition === rec) {
+        try {
+          rec.start();
+        } catch {}
+      }
+    }, 200);
+  };
+
+  return rec;
+}
+
 async function startListening() {
   stopListening();
   state.interim = "";
@@ -306,9 +397,10 @@ async function startListening() {
     return;
   }
 
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) {
-    state.live = "Speech recognition not supported in this browser. Type your answer below. Chrome works best.";
+  const rec = createRecognizer();
+  if (!rec) {
+    state.live =
+      "Speech recognition not supported in this browser. Type your answer below. Chrome works best.";
     renderLive();
     const warn = $("#warn");
     if (warn) {
@@ -319,85 +411,14 @@ async function startListening() {
     return;
   }
 
-  const lang = state.settings.lang || "en-US";
-  const rec = new SR();
-  // continuous false is more reliable on many Windows + Chrome setups
-  rec.continuous = false;
-  rec.interimResults = true;
-  rec.maxAlternatives = 1;
-  rec.lang = lang;
   state.recognition = rec;
-
-  rec.onresult = (e) => {
-    let interim = "";
-    let final = "";
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const t = e.results[i][0].transcript;
-      if (e.results[i].isFinal) final += t;
-      else interim += t;
-    }
-    if (final) {
-      state.finalText = (state.finalText + " " + final).trim();
-      state.lastSpeechAt = Date.now();
-    }
-    if (interim) {
-      state.lastSpeechAt = Date.now();
-      state.interim = interim;
-    }
-    state.live = (state.finalText + " " + (interim || "")).trim() || "Listening... speak now.";
-    renderLive();
-    scheduleSilenceCheck();
-  };
-
-  rec.onerror = (e) => {
-    const code = e.error || "";
-    if (code === "not-allowed" || code === "service-not-allowed") {
-      state.live = "Microphone blocked. Allow mic or type your answer.";
-      renderLive();
-      const warn = $("#warn");
-      if (warn) {
-        warn.hidden = false;
-        warn.textContent = "Allow the microphone in the address bar, then click the mic again.";
-      }
-    } else if (code === "no-speech") {
-      // will restart via onend while still listening
-    } else if (code === "audio-capture") {
-      state.live = "No microphone found. Plug in a mic or type your answer.";
-      renderLive();
-    } else if (code === "network") {
-      state.live = "Speech service network error. Type your answer below.";
-      renderLive();
-    } else if (code === "aborted") {
-      // ignore intentional stops
-    }
-  };
-
-  rec.onend = () => {
-    if (state.phase !== "listening" || !state.active) return;
-    // If we already captured a final phrase, let silence checker finalize.
-    // Otherwise restart recognition so the user can keep talking.
-    if (state.finalText && state.lastSpeechAt && Date.now() - state.lastSpeechAt > 900) {
-      scheduleSilenceCheck();
-      return;
-    }
-    try {
-      rec.start();
-    } catch {
-      setTimeout(() => {
-        if (state.phase === "listening" && state.active) {
-          try { rec.start(); } catch {}
-        }
-      }, 250);
-    }
-  };
-
   try {
     rec.start();
     setPhase("listening");
-    state.live = "Listening... speak now. (lang: " + lang + ")";
+    state.live = "Listening... speak now.";
     renderLive();
     scheduleSilenceCheck();
-  } catch {
+  } catch (err) {
     state.live = "Could not start mic. Type your answer below.";
     renderLive();
     setPhase("listening");
@@ -634,6 +655,16 @@ async function startSession() {
   renderLive();
   renderReply();
 
+  state.live = "Checking microphone...";
+  renderLive();
+  const perm = await ensureMicPermission();
+  if (!perm.ok) {
+    state.reply = "I cannot use the mic yet. Please allow microphone, or type your answer.";
+    renderReply();
+    setPhase("listening");
+    return;
+  }
+
   const greet = greetingFor(state.topic);
   state.reply = greet;
   state.lastSpoken = greet;
@@ -641,6 +672,7 @@ async function startSession() {
   renderReply();
   setPhase("speaking");
   await speak(greet);
+  await new Promise((r) => setTimeout(r, 350));
   if (state.active) await startListening();
 }
 
