@@ -387,6 +387,9 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   align-items: end;
   padding: 12px;
 }
+.backdrop[hidden] {
+  display: none !important;
+}
 
 .sheet {
   width: min(560px, 100%);
