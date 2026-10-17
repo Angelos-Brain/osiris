@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Osiris — Voice English Practice</title>
+    <meta
+      name="description"
+      content="Osiris is a free voice partner that helps you practice speaking English."
+    />
+    <meta name="theme-color" content="#071422" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Orbitron:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <div class="particles" aria-hidden="true">
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      </div>
+
+      <div class="shell">
+        <header class="topbar">
+          <p id="online" class="badge is-on">
+            <span class="dot" aria-hidden="true"></span>ONLINE
+          </p>
+          <p id="clock" class="clock">--:--</p>
+        </header>
+
+        <section class="stage">
+          <div id="orb" class="orb is-idle" aria-hidden="true">
+            <span class="ring ring-a"></span>
+            <span class="ring ring-b"></span>
+            <span class="ring ring-c"></span>
+            <div class="core">
+              <div class="bars">
+                <span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span>
+              </div>
+              <p class="name">OSIRIS</p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            id="mic"
+            class="mic"
+            aria-pressed="false"
+            aria-label="Start talking"
+          >
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+          </button>
+          <p id="status" class="status" aria-live="polite">Click to start</p>
+          <p id="hint" class="hint">
+            Click once. Osiris will greet you, then listen.
+          </p>
+          <div id="topics" class="topics" role="group" aria-label="Topic"></div>
+        </section>
+
+        <p id="warn" class="warn" hidden></p>
+        <p id="note" class="note" hidden></p>
+
+        <section class="panels">
+          <article class="panel">
+            <h2 class="hud-label">LIVE TRANSCRIPT</h2>
+            <p id="live" class="live" aria-live="polite">
+              Your words will show up here while you speak.
+            </p>
+            <form id="typed-form" class="text-row">
+              <input
+                id="typed"
+                type="text"
+                placeholder="Or type a sentence"
+                aria-label="Type a sentence"
+                autocomplete="off"
+              />
+              <button type="submit">Send</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <h2 class="hud-label">OSIRIS</h2>
+            <p id="reply" class="reply-text">
+              Osiris will answer here and say it out loud.
+            </p>
+          </article>
+
+          <article id="corrections-panel" class="panel paper wide">
+            <h2 class="hud-label">CORRECTIONS</h2>
+            <p>
+              Corrections will show up here in big text when there is a better
+              way to say something.
+            </p>
+          </article>
+        </section>
+
+        <nav class="dock">
+          <button type="button" id="history-btn">History</button>
+          <button type="button" id="settings-btn">Settings</button>
+          <button type="button" id="end-session" disabled>End session</button>
+        </nav>
+      </div>
+
+      <div id="backdrop" class="backdrop" hidden>
+        <div class="sheet" role="dialog" aria-modal="true">
+          <div class="row">
+            <h2 id="sheet-title">PANEL</h2>
+            <button type="button" id="close-sheet">Close</button>
+          </div>
+          <div id="sheet-body"></div>
+        </div>
+      </div>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
