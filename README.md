@@ -4,6 +4,12 @@
 
 You click the microphone one time. Osiris greets you, listens, answers out loud, then listens again. You do not need to press anything else between turns.
 
+## Live site
+
+**https://angelos-brain.github.io/osiris/**
+
+(After you enable GitHub Pages once — see the one-time setup below.)
+
 ## What you need
 
 - A modern browser: **Chrome** or **Edge** work best
@@ -25,6 +31,14 @@ Firefox usually cannot hear you. Safari support is partial.
 9. Read your session summary: 3 strengths, top mistakes, and new words.
 
 If the microphone cannot hear you, type a sentence in the box under **Live transcript** and press **Send** (after you start a session).
+
+## One-time: turn on GitHub Pages
+
+1. Open https://github.com/Angelos-Brain/osiris/settings/pages
+2. Under **Build and deployment** → **Source**, choose **Deploy from a branch**.
+3. Branch: **main**, folder: **/ (root)**.
+4. Click **Save**.
+5. Wait 1–2 minutes, then open https://angelos-brain.github.io/osiris/
 
 ## Settings
 
@@ -52,7 +66,6 @@ Open **Settings** at the bottom:
 - The first click is required so the browser can ask for the microphone.
 - Replies from the free text service can take several seconds.
 - A private in-browser language model is about **480 MB** and is too heavy for many phones, so Osiris does not download one by default.
-- Kokoro and similar free neural voices also need a large download and extra memory; Osiris uses your device voices instead so the app stays light.
 - Chrome speech recognition often needs the internet and is not available the same way in every browser.
 
 ## Run locally
