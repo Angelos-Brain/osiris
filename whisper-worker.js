@@ -1,7 +1,8 @@
 /**
  * Osiris Whisper speech-to-text worker
- * onnx-community/whisper-tiny.en via Transformers.js — free, on-device, no API key.
- * Prefer WASM for reliability (esp. Windows/Brave). WebGPU is optional and may fail.
+ * onnx-community/whisper-base.en via Transformers.js — free, on-device, no API key.
+ * Larger than tiny.en but much better for Filipino-accented English.
+ * Prefer WASM for reliability (esp. Windows/Brave). WebGPU is optional.
  * English-only model: do NOT pass language or task options.
  */
 import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1";
@@ -9,7 +10,7 @@ import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transfo
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 
-const MODEL_ID = "onnx-community/whisper-tiny.en";
+const MODEL_ID = "onnx-community/whisper-base.en";
 
 let transcriber = null;
 let loading = null;
@@ -25,7 +26,6 @@ function isWindows() {
 
 async function pickDevice() {
   // WebGPU on Windows often fails mid-inference in Chromium/Brave.
-  // Prefer wasm for a reliable free path; still try webgpu on non-Windows.
   if (isWindows()) return "wasm";
 
   if (typeof navigator !== "undefined" && navigator.gpu) {
@@ -57,11 +57,11 @@ async function loadPipeline(device, progress_callback) {
     },
   };
 
-  // Simple, widely supported dtypes. Avoid exotic q4 splits that 404 on some hosts.
+  // q8 for wasm keeps download smaller; webgpu uses safer encoder/decoder pair
   if (device === "webgpu") {
     opts.dtype = {
       encoder_model: "fp32",
-      decoder_model_merged: "fp16",
+      decoder_model_merged: "q4",
     };
   } else {
     opts.dtype = "q8";
@@ -82,7 +82,6 @@ async function getTranscriber() {
     try {
       transcriber = await loadPipeline(device);
     } catch (err) {
-      // If webgpu fails to load, fall back to wasm once.
       if (device === "webgpu") {
         device = "wasm";
         deviceUsed = device;
@@ -93,7 +92,6 @@ async function getTranscriber() {
       }
     }
 
-    // Warm-up with 1 second of silence so first real utterance is faster / shaders compile.
     try {
       await transcriber(new Float32Array(16000));
     } catch (_) {
@@ -132,7 +130,6 @@ self.onmessage = async (event) => {
         return;
       }
 
-      // Always copy into a fresh Float32Array (transferable buffers can be detached).
       const src = audio instanceof Float32Array ? audio : new Float32Array(audio.buffer || audio);
       const samples = new Float32Array(src.length);
       samples.set(src);
@@ -149,7 +146,6 @@ self.onmessage = async (event) => {
         // English-only model: no language / task options
         output = await pipe(samples);
       } catch (inferErr) {
-        // One retry after resetting the pipeline (handles stale WebGPU sessions)
         transcriber = null;
         loading = null;
         const pipe2 = await getTranscriber();
