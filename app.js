@@ -265,7 +265,33 @@ function stopListening() {
   } catch {}
 }
 
-function startListening() {
+async function ensureMicPermission() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    return { ok: true, note: "no-getUserMedia" };
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((t) => t.stop());
+    const warn = $("#warn");
+    if (warn) {
+      warn.hidden = true;
+      warn.textContent = "";
+    }
+    return { ok: true };
+  } catch (err) {
+    const warn = $("#warn");
+    if (warn) {
+      warn.hidden = false;
+      warn.textContent =
+        "Microphone blocked. Click the lock icon near the address bar, allow Microphone, then click the mic again. Or type your answer below.";
+    }
+    state.live = "Microphone blocked. Allow mic permission or type your answer.";
+    renderLive();
+    return { ok: false, error: String(err && err.name ? err.name : err) };
+  }
+}
+
+async function startListening() {
   stopListening();
   state.interim = "";
   state.finalText = "";
@@ -274,10 +300,21 @@ function startListening() {
   state.lastSpeechAt = 0;
   renderLive();
 
+  const perm = await ensureMicPermission();
+  if (!perm.ok) {
+    setPhase("listening");
+    return;
+  }
+
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
-    state.live = "Speech recognition not supported. Type your answer below.";
+    state.live = "Speech recognition not supported in this browser. Type your answer below. Chrome works best.";
     renderLive();
+    const warn = $("#warn");
+    if (warn) {
+      warn.hidden = false;
+      warn.textContent = "Use Google Chrome for voice. On this browser, please type your answers.";
+    }
     setPhase("listening");
     return;
   }
@@ -308,7 +345,8 @@ function startListening() {
   };
 
   rec.onerror = (e) => {
-    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+    const code = e.error || "";
+    if (code === "not-allowed" || code === "service-not-allowed") {
       state.live = "Microphone blocked. Allow mic or type your answer.";
       renderLive();
       const warn = $("#warn");
@@ -316,6 +354,14 @@ function startListening() {
         warn.hidden = false;
         warn.textContent = "Allow the microphone in the address bar, then click the mic again.";
       }
+    } else if (code === "no-speech") {
+      // browser timed out with no speech; silence checker will nudge
+    } else if (code === "audio-capture") {
+      state.live = "No microphone found. Plug in a mic or type your answer.";
+      renderLive();
+    } else if (code === "network") {
+      state.live = "Speech service network error. Type your answer below.";
+      renderLive();
     }
   };
 
@@ -330,6 +376,8 @@ function startListening() {
   try {
     rec.start();
     setPhase("listening");
+    state.live = "Listening... speak now.";
+    renderLive();
     scheduleSilenceCheck();
   } catch {
     state.live = "Could not start mic. Type your answer below.";
@@ -360,8 +408,8 @@ function scheduleSilenceCheck() {
       renderReply();
       state.lastSpoken = state.reply;
       setPhase("speaking");
-      speak(state.reply).then(() => {
-        if (state.active) startListening();
+      speak(state.reply).then(async () => {
+        if (state.active) await startListening();
       });
     } else {
       scheduleSilenceCheck();
@@ -469,7 +517,7 @@ async function askOsiris(userText) {
 async function handleUserText(text) {
   const cleaned = String(text || "").trim();
   if (!cleaned) {
-    startListening();
+    await startListening();
     return;
   }
 
@@ -510,7 +558,7 @@ async function handleUserText(text) {
 
   setPhase("speaking");
   await speak(result.spoken || result.reply);
-  if (state.active) startListening();
+  if (state.active) await startListening();
 }
 
 async function endSession(forceSummary) {
@@ -575,7 +623,7 @@ async function startSession() {
   renderReply();
   setPhase("speaking");
   await speak(greet);
-  if (state.active) startListening();
+  if (state.active) await startListening();
 }
 
 function sendTyped() {
