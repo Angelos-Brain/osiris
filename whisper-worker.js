@@ -1,16 +1,15 @@
 /**
  * Osiris Whisper speech-to-text worker
- * onnx-community/whisper-base.en via Transformers.js — free, on-device, no API key.
- * Larger than tiny.en but much better for Filipino-accented English.
- * Prefer WASM for reliability (esp. Windows/Brave). WebGPU is optional.
- * English-only model: do NOT pass language or task options.
+ * onnx-community/whisper-small.en — free, on-device, no API key.
+ * Better accuracy for Filipino-accented English than tiny/base.
+ * Prefer WASM on Windows/Brave. English-only: no language/task options.
  */
 import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1";
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 
-const MODEL_ID = "onnx-community/whisper-base.en";
+const MODEL_ID = "onnx-community/whisper-small.en";
 
 let transcriber = null;
 let loading = null;
@@ -25,7 +24,6 @@ function isWindows() {
 }
 
 async function pickDevice() {
-  // WebGPU on Windows often fails mid-inference in Chromium/Brave.
   if (isWindows()) return "wasm";
 
   if (typeof navigator !== "undefined" && navigator.gpu) {
@@ -39,11 +37,28 @@ async function pickDevice() {
   return "wasm";
 }
 
-async function loadPipeline(device, progress_callback) {
+/** Peak-normalize so quiet mics still feed Whisper a strong signal. */
+function normalizeAudio(samples) {
+  let peak = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const v = Math.abs(samples[i]);
+    if (v > peak) peak = v;
+  }
+  if (peak < 1e-6) return samples;
+  // Target ~0.9 peak; avoid clipping
+  const gain = Math.min(0.9 / peak, 12);
+  if (gain < 1.05) return samples;
+  const out = new Float32Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    out[i] = samples[i] * gain;
+  }
+  return out;
+}
+
+async function loadPipeline(device) {
   const opts = {
     device,
     progress_callback: (p) => {
-      if (progress_callback) progress_callback(p);
       if (p && typeof p.progress === "number") {
         self.postMessage({
           type: "progress",
@@ -57,7 +72,6 @@ async function loadPipeline(device, progress_callback) {
     },
   };
 
-  // q8 for wasm keeps download smaller; webgpu uses safer encoder/decoder pair
   if (device === "webgpu") {
     opts.dtype = {
       encoder_model: "fp32",
@@ -131,13 +145,15 @@ self.onmessage = async (event) => {
       }
 
       const src = audio instanceof Float32Array ? audio : new Float32Array(audio.buffer || audio);
-      const samples = new Float32Array(src.length);
+      let samples = new Float32Array(src.length);
       samples.set(src);
 
       if (samples.length < 1600) {
         self.postMessage({ type: "result", text: "" });
         return;
       }
+
+      samples = normalizeAudio(samples);
 
       const pipe = await getTranscriber();
 
