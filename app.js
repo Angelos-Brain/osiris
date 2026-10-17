@@ -152,7 +152,7 @@ function renderCorrections() {
             "</span></p>"
         )
         .join("") +
-      "<p><strong>New words</strong></p><ul class=\"words\">" +
+      '<p><strong>New words</strong></p><ul class="words">' +
       state.summary.words.map((w) => "<li>" + escapeHtml(w) + "</li>").join("") +
       "</ul>";
     return;
@@ -746,7 +746,6 @@ function bindUI() {
 }
 
 function init() {
-  // Ensure sheet starts closed
   closeSheet();
   loadSettings();
   populateTopics();
