@@ -112,11 +112,12 @@ function setPhase(phase) {
 }
 
 function escapeHtml(s) {
+  const a = String.fromCharCode(38);
   return String(s)
-    .replace(/&/g, String.fromCharCode(38) + "amp;")
-    .replace(/</g, String.fromCharCode(38) + "lt;")
-    .replace(/>/g, String.fromCharCode(38) + "gt;")
-    .replace(/"/g, String.fromCharCode(38) + "quot;");
+    .replace(/&/g, a + "amp;")
+    .replace(/</g, a + "lt;")
+    .replace(/>/g, a + "gt;")
+    .replace(/"/g, a + "quot;");
 }
 
 function renderLive() {
@@ -668,31 +669,26 @@ function openSettings() {
       "</option>"
   ).join("");
 
-  openSheet(
-    "SETTINGS",
-    '<label for="voice">Voice</label>' +
-      '<select id="voice"><option value="">Automatic male English voice</option>' +
-      voiceOptions +
-      "</select>" +
-      "<p>Voices come from your device. They differ on each phone and computer.</p>" +
-      '<button type="button" class="primary" id="test-voice">Test voice</button>' +
-      '<label for="rate">Speech speed (' +
-      Number(state.settings.rate).toFixed(2) +
-      ")</label>' +
-      '<input id="rate" type="range" min="0.75" max="1.15" step="0.05" value="' +
-      state.settings.rate +
-      '">' +
-      '<label for="lang">Recognition language</label>' +
-      '<select id="lang">' +
-      langOptions +
-      "</select>" +
-      "<p>Try English (Philippines). Chrome works best.</p>" +
-      '<label for="key">Optional Gemini key</label>' +
-      '<input id="key" type="password" autocomplete="off" value="' +
-      escapeHtml(state.settings.geminiKey || "") +
-      '" placeholder="Paste a free key, or leave empty">' +
-      "<p>Leave empty for the free path. A key stays only in this browser.</p>"
-  );
+  const rateNow = Number(state.settings.rate).toFixed(2);
+  const settingsHtml = [
+    '<label for="voice">Voice</label>',
+    '<select id="voice"><option value="">Automatic male English voice</option>',
+    voiceOptions,
+    '</select>',
+    '<p>Voices come from your device. They differ on each phone and computer.</p>',
+    '<button type="button" class="primary" id="test-voice">Test voice</button>',
+    '<label for="rate">Speech speed (' + rateNow + ')</label>',
+    '<input id="rate" type="range" min="0.75" max="1.15" step="0.05" value="' + state.settings.rate + '">',
+    '<label for="lang">Recognition language</label>',
+    '<select id="lang">',
+    langOptions,
+    '</select>',
+    '<p>Try English (Philippines). Chrome works best.</p>',
+    '<label for="key">Optional Gemini key</label>',
+    '<input id="key" type="password" autocomplete="off" value="' + escapeHtml(state.settings.geminiKey || '') + '" placeholder="Paste a free key, or leave empty">',
+    '<p>Leave empty for the free path. A key stays only in this browser.</p>',
+  ].join('');
+  openSheet('SETTINGS', settingsHtml);
 
   $("#voice")?.addEventListener("change", (e) => {
     state.settings.voiceURI = e.target.value;
