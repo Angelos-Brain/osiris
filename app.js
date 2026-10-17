@@ -25,7 +25,7 @@ const SETTINGS_KEY = "osiris.settings.v1";
 const SESSIONS_KEY = "osiris.sessions.v1";
 
 const defaultSettings = {
-  rate: 0.9,
+  rate: 1.15,
   voiceURI: "",
   lang: "en-US",
   geminiKey: "",
@@ -266,7 +266,8 @@ function speak(text) {
     }
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    u.rate = Number(state.settings.rate) || 0.9;
+    u.rate = Number(state.settings.rate) || 1.15;
+    u.pitch = 1.05;
     u.lang = state.settings.lang || "en-US";
     const chosen =
       state.voices.find((v) => v.voiceURI === state.settings.voiceURI) ||
@@ -1030,7 +1031,7 @@ function openSettings() {
     "<p>Voices come from your device. They differ on each phone and computer.</p>",
     '<button type="button" class="primary" id="test-voice">Test voice</button>',
     '<label for="rate">Speech speed (' + rateNow + ")</label>",
-    '<input id="rate" type="range" min="0.75" max="1.15" step="0.05" value="' + state.settings.rate + '">',
+    '<input id="rate" type="range" min="0.9" max="1.4" step="0.05" value="' + state.settings.rate + '">',
     '<label for="lang">Preferred language tag</label>',
     '<select id="lang">',
     langOptions,
