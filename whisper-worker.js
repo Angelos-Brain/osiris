@@ -1,11 +1,8 @@
 /**
  * Osiris Whisper speech-to-text worker
- * Runs onnx-community/whisper-tiny.en fully in-browser via Transformers.js.
- * Free, no API key, WebGPU preferred with WASM fallback.
- * Model is cached by the browser after first download.
- *
- * English-only models must NOT receive language or task options.
- * See transformers.js pipeline docs and Whisper generation config.
+ * onnx-community/whisper-tiny.en via Transformers.js — free, on-device, no API key.
+ * Prefer WASM for reliability (esp. Windows/Brave). WebGPU is optional and may fail.
+ * English-only model: do NOT pass language or task options.
  */
 import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1";
 
@@ -18,7 +15,19 @@ let transcriber = null;
 let loading = null;
 let deviceUsed = "unknown";
 
+function isWindows() {
+  try {
+    return /Windows/i.test(navigator.userAgent || "") || /Win/i.test(navigator.platform || "");
+  } catch {
+    return false;
+  }
+}
+
 async function pickDevice() {
+  // WebGPU on Windows often fails mid-inference in Chromium/Brave.
+  // Prefer wasm for a reliable free path; still try webgpu on non-Windows.
+  if (isWindows()) return "wasm";
+
   if (typeof navigator !== "undefined" && navigator.gpu) {
     try {
       const adapter = await navigator.gpu.requestAdapter();
@@ -30,35 +39,66 @@ async function pickDevice() {
   return "wasm";
 }
 
-async function getTranscriber(progress_callback) {
+async function loadPipeline(device, progress_callback) {
+  const opts = {
+    device,
+    progress_callback: (p) => {
+      if (progress_callback) progress_callback(p);
+      if (p && typeof p.progress === "number") {
+        self.postMessage({
+          type: "progress",
+          progress: Math.round(p.progress),
+          file: p.file || "",
+          status: p.status || "",
+        });
+      } else if (p && p.status) {
+        self.postMessage({ type: "progress", status: p.status, file: p.file || "" });
+      }
+    },
+  };
+
+  // Simple, widely supported dtypes. Avoid exotic q4 splits that 404 on some hosts.
+  if (device === "webgpu") {
+    opts.dtype = {
+      encoder_model: "fp32",
+      decoder_model_merged: "fp16",
+    };
+  } else {
+    opts.dtype = "q8";
+  }
+
+  return pipeline("automatic-speech-recognition", MODEL_ID, opts);
+}
+
+async function getTranscriber() {
   if (transcriber) return transcriber;
   if (loading) return loading;
 
   loading = (async () => {
-    const device = await pickDevice();
+    let device = await pickDevice();
     deviceUsed = device;
     self.postMessage({ type: "status", status: "loading", device });
 
-    transcriber = await pipeline("automatic-speech-recognition", MODEL_ID, {
-      device,
-      dtype: {
-        encoder_model: "fp32",
-        decoder_model_merged: "q4",
-      },
-      progress_callback: (p) => {
-        if (progress_callback) progress_callback(p);
-        if (p && typeof p.progress === "number") {
-          self.postMessage({
-            type: "progress",
-            progress: Math.round(p.progress),
-            file: p.file || "",
-            status: p.status || "",
-          });
-        } else if (p && p.status) {
-          self.postMessage({ type: "progress", status: p.status, file: p.file || "" });
-        }
-      },
-    });
+    try {
+      transcriber = await loadPipeline(device);
+    } catch (err) {
+      // If webgpu fails to load, fall back to wasm once.
+      if (device === "webgpu") {
+        device = "wasm";
+        deviceUsed = device;
+        self.postMessage({ type: "status", status: "loading", device });
+        transcriber = await loadPipeline(device);
+      } else {
+        throw err;
+      }
+    }
+
+    // Warm-up with 1 second of silence so first real utterance is faster / shaders compile.
+    try {
+      await transcriber(new Float32Array(16000));
+    } catch (_) {
+      /* warm-up is best-effort */
+    }
 
     self.postMessage({ type: "status", status: "ready", device: deviceUsed });
     return transcriber;
@@ -91,19 +131,30 @@ self.onmessage = async (event) => {
         self.postMessage({ type: "error", message: "No audio data received." });
         return;
       }
-      const samples = audio instanceof Float32Array ? audio : new Float32Array(audio.buffer || audio);
+
+      // Always copy into a fresh Float32Array (transferable buffers can be detached).
+      const src = audio instanceof Float32Array ? audio : new Float32Array(audio.buffer || audio);
+      const samples = new Float32Array(src.length);
+      samples.set(src);
 
       if (samples.length < 1600) {
-        // < ~0.1 s at 16 kHz
         self.postMessage({ type: "result", text: "" });
         return;
       }
 
       const pipe = await getTranscriber();
-      // English-only model: do NOT pass language or task
-      const output = await pipe(samples, {
-        return_timestamps: false,
-      });
+
+      let output;
+      try {
+        // English-only model: no language / task options
+        output = await pipe(samples);
+      } catch (inferErr) {
+        // One retry after resetting the pipeline (handles stale WebGPU sessions)
+        transcriber = null;
+        loading = null;
+        const pipe2 = await getTranscriber();
+        output = await pipe2(samples);
+      }
 
       const text = (output?.text || "").trim();
       self.postMessage({ type: "result", text });
