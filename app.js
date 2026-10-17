@@ -555,7 +555,11 @@ async function startListening() {
     const processor = audioCtx.createScriptProcessor(bufferSize, 1, 1);
     state.processor = processor;
 
-    const SPEECH_THRESHOLD = 0.015;
+    const SPEECH_THRESHOLD = 0.01;
+
+    // Keep ~0.4s of audio before speech starts so first words are not cut off
+    state.preRollBuffers = [];
+    const PRE_ROLL_MAX = 5; // ~5 * 4096 samples at typical rates ≈ 0.4s
 
     processor.onaudioprocess = (e) => {
       if (state.phase !== "listening" || !state.active) return;
@@ -572,6 +576,11 @@ async function startListening() {
         if (!state.isSpeaking) {
           state.isSpeaking = true;
           state.speechStartAt = Date.now();
+          // Prepend pre-roll so the first syllable is not lost
+          if (state.preRollBuffers && state.preRollBuffers.length) {
+            state.captureBuffers.push(...state.preRollBuffers);
+            state.preRollBuffers = [];
+          }
         }
         state.lastSpeechAt = Date.now();
         state.captureBuffers.push(copy);
@@ -581,6 +590,9 @@ async function startListening() {
         }
       } else if (state.isSpeaking) {
         state.captureBuffers.push(copy);
+      } else {
+        state.preRollBuffers.push(copy);
+        if (state.preRollBuffers.length > PRE_ROLL_MAX) state.preRollBuffers.shift();
       }
     };
 
@@ -664,7 +676,14 @@ function finalizeAndTranscribe() {
   renderLive();
 
   const flat = flattenBuffers(buffers);
-  const audio16k = resampleTo16k(flat, rate);
+  let audio16k = resampleTo16k(flat, rate);
+  // Pad ~0.25s silence on both ends so Whisper does not clip first/last words
+  {
+    const pad = 4000; // 0.25s at 16 kHz
+    const padded = new Float32Array(audio16k.length + pad * 2);
+    padded.set(audio16k, pad);
+    audio16k = padded;
+  }
 
   const worker = ensureWorker();
   if (!worker) {
@@ -1020,7 +1039,7 @@ function openSettings() {
       "</strong></p>",
     '<p id="diag-test-result" style="margin:8px 0;font-size:0.95rem;min-height:1.4em"></p>',
     '<button type="button" class="primary" id="test-speech-model">Test speech model</button>',
-    "<p style=\"margin:8px 0 0;font-size:0.85rem;color:var(--muted)\">Records 3 seconds from your mic and transcribes it with the free on-device Whisper model. First visit may download ~40–80 MB once.</p>",
+    "<p style=\"margin:8px 0 0;font-size:0.85rem;color:var(--muted)\">Records 3 seconds from your mic and transcribes it with the free on-device Whisper model. First visit may download ~200–250 MB once (then cached).</p>",
   ].join("");
 
   const settingsHtml = [
@@ -1036,7 +1055,7 @@ function openSettings() {
     '<select id="lang">',
     langOptions,
     "</select>",
-    "<p>Used for the spoken voice. Speech recognition is English-only (Whisper tiny.en).</p>",
+    "<p>Used for the spoken voice. Speech recognition is English-only (Whisper small.en, free on-device).</p>",
     '<label for="key">Optional Gemini key</label>',
     '<input id="key" type="password" autocomplete="off" value="' +
       escapeHtml(state.settings.geminiKey || "") +
@@ -1127,7 +1146,13 @@ async function runSpeechModelTest() {
     if (resultEl) resultEl.textContent = "Transcribing…";
 
     const flat = flattenBuffers(buffers);
-    const audio16k = resampleTo16k(flat, rate);
+    let audio16k = resampleTo16k(flat, rate);
+    {
+      const pad = 4000;
+      const padded = new Float32Array(audio16k.length + pad * 2);
+      padded.set(audio16k, pad);
+      audio16k = padded;
+    }
 
     const text = await new Promise((resolve) => {
       const onMsg = (event) => {
