@@ -3,6 +3,9 @@
  * Runs onnx-community/whisper-tiny.en fully in-browser via Transformers.js.
  * Free, no API key, WebGPU preferred with WASM fallback.
  * Model is cached by the browser after first download.
+ *
+ * English-only models must NOT receive language or task options.
+ * See transformers.js pipeline docs and Whisper generation config.
  */
 import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1";
 
@@ -97,9 +100,8 @@ self.onmessage = async (event) => {
       }
 
       const pipe = await getTranscriber();
+      // English-only model: do NOT pass language or task
       const output = await pipe(samples, {
-        language: "english",
-        task: "transcribe",
         return_timestamps: false,
       });
 
