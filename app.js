@@ -25,7 +25,7 @@ const SESSIONS_KEY = "osiris.sessions.v1";
 const defaultSettings = {
   rate: 0.9,
   voiceURI: "",
-  lang: "en-PH",
+  lang: "en-US",
   geminiKey: "",
 };
 
@@ -239,7 +239,7 @@ function speak(text) {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.rate = Number(state.settings.rate) || 0.9;
-    u.lang = state.settings.lang || "en-PH";
+    u.lang = state.settings.lang || "en-US";
     const chosen =
       state.voices.find((v) => v.voiceURI === state.settings.voiceURI) ||
       pickMaleEnglishVoice(state.voices);
@@ -319,10 +319,13 @@ async function startListening() {
     return;
   }
 
+  const lang = state.settings.lang || "en-US";
   const rec = new SR();
-  rec.continuous = true;
+  // continuous false is more reliable on many Windows + Chrome setups
+  rec.continuous = false;
   rec.interimResults = true;
-  rec.lang = state.settings.lang || "en-PH";
+  rec.maxAlternatives = 1;
+  rec.lang = lang;
   state.recognition = rec;
 
   rec.onresult = (e) => {
@@ -337,9 +340,11 @@ async function startListening() {
       state.finalText = (state.finalText + " " + final).trim();
       state.lastSpeechAt = Date.now();
     }
-    if (interim) state.lastSpeechAt = Date.now();
-    state.interim = interim;
-    state.live = (state.finalText + " " + interim).trim();
+    if (interim) {
+      state.lastSpeechAt = Date.now();
+      state.interim = interim;
+    }
+    state.live = (state.finalText + " " + (interim || "")).trim() || "Listening... speak now.";
     renderLive();
     scheduleSilenceCheck();
   };
@@ -355,28 +360,41 @@ async function startListening() {
         warn.textContent = "Allow the microphone in the address bar, then click the mic again.";
       }
     } else if (code === "no-speech") {
-      // browser timed out with no speech; silence checker will nudge
+      // will restart via onend while still listening
     } else if (code === "audio-capture") {
       state.live = "No microphone found. Plug in a mic or type your answer.";
       renderLive();
     } else if (code === "network") {
       state.live = "Speech service network error. Type your answer below.";
       renderLive();
+    } else if (code === "aborted") {
+      // ignore intentional stops
     }
   };
 
   rec.onend = () => {
-    if (state.phase === "listening" && state.active) {
-      try {
-        rec.start();
-      } catch {}
+    if (state.phase !== "listening" || !state.active) return;
+    // If we already captured a final phrase, let silence checker finalize.
+    // Otherwise restart recognition so the user can keep talking.
+    if (state.finalText && state.lastSpeechAt && Date.now() - state.lastSpeechAt > 900) {
+      scheduleSilenceCheck();
+      return;
+    }
+    try {
+      rec.start();
+    } catch {
+      setTimeout(() => {
+        if (state.phase === "listening" && state.active) {
+          try { rec.start(); } catch {}
+        }
+      }, 250);
     }
   };
 
   try {
     rec.start();
     setPhase("listening");
-    state.live = "Listening... speak now.";
+    state.live = "Listening... speak now. (lang: " + lang + ")";
     renderLive();
     scheduleSilenceCheck();
   } catch {
@@ -731,7 +749,7 @@ function openSettings() {
     '<select id="lang">',
     langOptions,
     '</select>',
-    '<p>Try English (Philippines). Chrome works best.</p>',
+    '<p>Try English (United States) first. Chrome works best.</p>',
     '<label for="key">Optional Gemini key</label>',
     '<input id="key" type="password" autocomplete="off" value="' + escapeHtml(state.settings.geminiKey || '') + '" placeholder="Paste a free key, or leave empty">',
     '<p>Leave empty for the free path. A key stays only in this browser.</p>',
