@@ -86,35 +86,29 @@ function saveSession() {
 
 function setPhase(phase) {
   state.phase = phase;
-  document.body.dataset.phase = phase;
   const orb = $("#orb");
   if (orb) {
-    orb.dataset.phase = phase;
-    orb.setAttribute("aria-label", `Osiris is ${phase}`);
+    orb.className = "orb is-" + phase;
+    orb.setAttribute("aria-label", "Osiris is " + phase);
   }
-  const status = $("#status-text");
+  const status = $("#status");
   if (status) {
     const map = {
-      idle: "Ready",
+      idle: "Click to start",
       listening: "Listening…",
       thinking: "Thinking…",
       speaking: "Speaking…",
-      summary: "Summary",
+      summary: "Session summary",
     };
     status.textContent = map[phase] || phase;
   }
-}
-
-function renderMessages() {
-  const box = $("#chat-log");
-  if (!box) return;
-  box.innerHTML = state.messages
-    .map((m) => {
-      const who = m.role === "user" ? "You" : "Osiris";
-      return `<div class="msg msg-${m.role}"><span class="who">${who}</span><p>${escapeHtml(m.text)}</p></div>`;
-    })
-    .join("");
-  box.scrollTop = box.scrollHeight;
+  const mic = $("#mic");
+  if (mic) {
+    mic.classList.toggle("is-listening", phase === "listening");
+    mic.setAttribute("aria-pressed", state.active ? "true" : "false");
+  }
+  const endBtn = $("#end-session");
+  if (endBtn) endBtn.disabled = !state.active;
 }
 
 function escapeHtml(s) {
@@ -125,88 +119,114 @@ function escapeHtml(s) {
     .replace(/"/g, """);
 }
 
-function renderCorrections() {
-  const panel = $("#corrections-panel");
-  const list = $("#corrections-list");
-  if (!panel || !list) return;
-  if (!state.corrections.length) {
-    panel.hidden = true;
-    list.innerHTML = "";
-    return;
-  }
-  panel.hidden = false;
-  list.innerHTML = state.corrections
-    .map(
-      (c) =>
-        `<div class="corr-item"><div class="said">You said: <strong>${escapeHtml(c.said)}</strong></div><div class="better">Better: <strong>${escapeHtml(c.better)}</strong></div><div class="why">${escapeHtml(c.why)}</div></div>`
-    )
-    .join("");
-}
-
 function renderLive() {
-  const el = $("#live-transcript");
-  if (el) el.textContent = state.live || state.interim || "";
+  const el = $("#live");
+  if (el) el.textContent = state.live || state.interim || "Your words will show up here while you speak.";
 }
 
 function renderReply() {
-  const el = $("#reply-text");
-  if (el) el.textContent = state.reply || "";
+  const el = $("#reply");
+  if (el) el.textContent = state.reply || "Osiris will answer here and say it out loud.";
+}
+
+function renderCorrections() {
+  const panel = $("#corrections-panel");
+  if (!panel) return;
+
+  if (state.summary) {
+    panel.className = "panel paper wide";
+    panel.innerHTML =
+      '<h2 class="hud-label">SESSION SUMMARY</h2>' +
+      "<p><strong>You did well</strong></p><ol>" +
+      state.summary.well.map((line) => "<li>" + escapeHtml(line) + "</li>").join("") +
+      "</ol><p><strong>Top mistakes</strong></p>" +
+      state.summary.mistakes
+        .map(
+          (item) =>
+            '<p class="fix"><span class="said">You said: ' +
+            escapeHtml(item.said) +
+            '</span><br><span class="better">Better: ' +
+            escapeHtml(item.better) +
+            '</span><span class="why">Why: ' +
+            escapeHtml(item.why) +
+            "</span></p>"
+        )
+        .join("") +
+      "<p><strong>New words</strong></p><ul class=\"words\">" +
+      state.summary.words.map((w) => "<li>" + escapeHtml(w) + "</li>").join("") +
+      "</ul>";
+    return;
+  }
+
+  panel.className = "panel paper wide";
+  if (!state.corrections.length) {
+    panel.innerHTML =
+      '<h2 class="hud-label">CORRECTIONS</h2>' +
+      "<p>Corrections will show up here in big text when there is a better way to say something.</p>";
+    return;
+  }
+  panel.innerHTML =
+    '<h2 class="hud-label">CORRECTIONS</h2>' +
+    state.corrections
+      .map(
+        (item) =>
+          '<p class="fix"><span class="said">You said: ' +
+          escapeHtml(item.said) +
+          '</span><br><span class="better">Better: ' +
+          escapeHtml(item.better) +
+          '</span><span class="why">Why: ' +
+          escapeHtml(item.why) +
+          "</span></p>"
+      )
+      .join("");
 }
 
 function updateClock() {
   const el = $("#clock");
   if (!el) return;
-  const d = new Date();
-  el.textContent = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  el.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-function openPanel(id) {
-  document.querySelectorAll(".sheet").forEach((s) => (s.hidden = true));
-  const sheet = $(`#${id}`);
-  if (sheet) sheet.hidden = false;
-  $("#backdrop")?.classList.add("open");
+function openSheet(title, bodyHtml) {
+  const backdrop = $("#backdrop");
+  const titleEl = $("#sheet-title");
+  const bodyEl = $("#sheet-body");
+  if (!backdrop || !titleEl || !bodyEl) return;
+  titleEl.textContent = title;
+  bodyEl.innerHTML = bodyHtml;
+  backdrop.hidden = false;
 }
 
-function closePanel() {
-  document.querySelectorAll(".sheet").forEach((s) => (s.hidden = true));
-  $("#backdrop")?.classList.remove("open");
+function closeSheet() {
+  const backdrop = $("#backdrop");
+  if (backdrop) backdrop.hidden = true;
+  const bodyEl = $("#sheet-body");
+  if (bodyEl) bodyEl.innerHTML = "";
 }
 
 function populateTopics() {
-  const sel = $("#topic-select");
-  if (!sel) return;
-  sel.innerHTML = TOPICS.map((t) => `<option value="${t.id}">${t.label}</option>`).join("");
-  sel.value = state.topic;
-}
-
-function populateLanguages() {
-  const sel = $("#lang-select");
-  if (!sel) return;
-  sel.innerHTML = RECOGNITION_LANGUAGES.map(
-    (l) => `<option value="${l.tag}">${l.label}</option>`
+  const row = $("#topics");
+  if (!row) return;
+  row.innerHTML = TOPICS.map(
+    (t) =>
+      '<button type="button" class="chip' +
+      (t.id === state.topic ? " is-on" : "") +
+      '" data-topic="' +
+      t.id +
+      '">' +
+      t.label +
+      "</button>"
   ).join("");
-  sel.value = state.settings.lang || "en-PH";
-}
-
-function populateVoices() {
-  const sel = $("#voice-select");
-  if (!sel) return;
-  const voices = state.voices.filter((v) => /^en/i.test(v.lang) || /english/i.test(v.name));
-  const pool = voices.length ? voices : state.voices;
-  sel.innerHTML =
-    `<option value="">Auto (male English if available)</option>` +
-    pool
-      .map((v) => {
-        const mark = isProbablyMale(v) ? " ♂" : "";
-        return `<option value="${escapeHtml(v.voiceURI)}">${escapeHtml(v.name)}${mark} (${v.lang})</option>`;
-      })
-      .join("");
-  if (state.settings.voiceURI) sel.value = state.settings.voiceURI;
+  row.addEventListener("click", (e) => {
+    const btn = e.target.closest(".chip");
+    if (!btn || state.active) return;
+    state.topic = btn.dataset.topic;
+    row.querySelectorAll(".chip").forEach((c) => c.classList.toggle("is-on", c.dataset.topic === state.topic));
+  });
 }
 
 function loadVoices() {
   state.voices = window.speechSynthesis?.getVoices() || [];
-  populateVoices();
 }
 
 function speak(text) {
@@ -290,12 +310,16 @@ function startListening() {
     if (e.error === "not-allowed" || e.error === "service-not-allowed") {
       state.live = "Microphone blocked. Allow mic or type your answer.";
       renderLive();
+      const warn = $("#warn");
+      if (warn) {
+        warn.hidden = false;
+        warn.textContent = "Allow the microphone in the address bar, then click the mic again.";
+      }
     }
   };
 
   rec.onend = () => {
     if (state.phase === "listening" && state.active) {
-      // browser ended early; restart if we still want to listen
       try {
         rec.start();
       } catch {}
@@ -306,7 +330,7 @@ function startListening() {
     rec.start();
     setPhase("listening");
     scheduleSilenceCheck();
-  } catch (err) {
+  } catch {
     state.live = "Could not start mic. Type your answer below.";
     renderLive();
     setPhase("listening");
@@ -351,19 +375,29 @@ async function askOsiris(userText) {
 
   const history = state.messages
     .slice(-8)
-    .map((m) => `${m.role === "user" ? "Student" : "Osiris"}: ${m.text}`)
+    .map((m) => (m.role === "user" ? "Student" : "Osiris") + ": " + m.text)
     .join("\n");
 
-  const prompt = `${SYSTEM_PROMPT}\n\nTopic: ${state.topic}\nUser turns: ${state.userTurns}\nRecent:\n${history}\nStudent: ${userText}\nReturn JSON only.`;
+  const prompt =
+    SYSTEM_PROMPT +
+    "\n\nTopic: " +
+    state.topic +
+    "\nUser turns: " +
+    state.userTurns +
+    "\nRecent:\n" +
+    history +
+    "\nStudent: " +
+    userText +
+    "\nReturn JSON only.";
 
   let result = null;
-
-  // Optional Gemini key from settings (localStorage only)
   const key = (state.settings.geminiKey || "").trim();
+
   if (key) {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(key)}`,
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" +
+          encodeURIComponent(key),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -376,16 +410,18 @@ async function askOsiris(userText) {
       if (res.ok) {
         const data = await res.json();
         const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        result = parseTutorResponse(text, localSummary({
-          topic: state.topic,
-          userTexts: state.userTexts,
-          corrections: state.pastCorrections,
-        }));
+        result = parseTutorResponse(
+          text,
+          localSummary({
+            topic: state.topic,
+            userTexts: state.userTexts,
+            corrections: state.pastCorrections,
+          })
+        );
       }
     } catch {}
   }
 
-  // Free Pollinations text endpoint (no key)
   if (!result) {
     try {
       const url =
@@ -396,16 +432,18 @@ async function askOsiris(userText) {
       const res = await fetch(url, { method: "GET" });
       if (res.ok) {
         const text = await res.text();
-        result = parseTutorResponse(text, localSummary({
-          topic: state.topic,
-          userTexts: state.userTexts,
-          corrections: state.pastCorrections,
-        }));
+        result = parseTutorResponse(
+          text,
+          localSummary({
+            topic: state.topic,
+            userTexts: state.userTexts,
+            corrections: state.pastCorrections,
+          })
+        );
       }
     } catch {}
   }
 
-  // Always have coach fallback
   if (!result) {
     const coached = coachReply({
       userText,
@@ -420,7 +458,6 @@ async function askOsiris(userText) {
     result = coached.result;
   }
 
-  // Merge local corrections if model returned none
   if (!result.corrections?.length) {
     result.corrections = capCorrections(findCorrections(userText));
   }
@@ -444,7 +481,6 @@ async function handleUserText(text) {
   state.userTexts.push(cleaned);
   state.userTurns += 1;
   state.live = cleaned;
-  renderMessages();
   renderLive();
 
   const result = await askOsiris(cleaned);
@@ -453,7 +489,6 @@ async function handleUserText(text) {
   state.pastCorrections = state.pastCorrections.concat(state.corrections);
   state.lastSpoken = result.spoken || result.reply;
   state.messages.push({ role: "assistant", text: result.reply });
-  renderMessages();
   renderReply();
   renderCorrections();
 
@@ -463,6 +498,7 @@ async function handleUserText(text) {
     await speak(result.spoken || result.reply);
     saveSession();
     state.active = false;
+    setPhase("summary");
     return;
   }
 
@@ -497,7 +533,6 @@ async function endSession(forceSummary) {
     renderCorrections();
     setPhase("summary");
     state.messages.push({ role: "assistant", text: state.reply });
-    renderMessages();
     await speak(spokenSummary(summary));
     saveSession();
   } else {
@@ -506,6 +541,8 @@ async function endSession(forceSummary) {
     renderReply();
   }
   state.active = false;
+  const endBtn = $("#end-session");
+  if (endBtn) endBtn.disabled = true;
 }
 
 async function startSession() {
@@ -521,19 +558,19 @@ async function startSession() {
   state.live = "";
   state.reply = "";
   state.lastSpoken = "";
-  renderMessages();
+  const warn = $("#warn");
+  if (warn) {
+    warn.hidden = true;
+    warn.textContent = "";
+  }
   renderCorrections();
   renderLive();
   renderReply();
-
-  const topicSel = $("#topic-select");
-  if (topicSel) state.topic = topicSel.value || "daily life";
 
   const greet = greetingFor(state.topic);
   state.reply = greet;
   state.lastSpoken = greet;
   state.messages.push({ role: "assistant", text: greet });
-  renderMessages();
   renderReply();
   setPhase("speaking");
   await speak(greet);
@@ -541,7 +578,7 @@ async function startSession() {
 }
 
 function sendTyped() {
-  const input = $("#typed-input");
+  const input = $("#typed");
   if (!input) return;
   const text = input.value.trim();
   if (!text) return;
@@ -559,8 +596,129 @@ function sendTyped() {
   handleUserText(text);
 }
 
+function openHistory() {
+  let list = [];
+  try {
+    list = JSON.parse(localStorage.getItem(SESSIONS_KEY) || "[]");
+  } catch {}
+  const current =
+    state.messages.length > 0
+      ? '<div class="log">' +
+        state.messages
+          .map(
+            (m) =>
+              '<p class="bubble"><strong>' +
+              (m.role === "user" ? "YOU" : "OSIRIS") +
+              "</strong>" +
+              escapeHtml(m.text) +
+              "</p>"
+          )
+          .join("") +
+        "</div>"
+      : "<p>No talk yet. Click the microphone to start.</p>";
+  const past =
+    list.length > 0
+      ? '<div class="past"><h3>Earlier sessions</h3>' +
+        list
+          .map(
+            (s) =>
+              "<article><h3>" +
+              escapeHtml(s.topic) +
+              " · " +
+              new Date(s.at).toLocaleString() +
+              "</h3><p>" +
+              (s.turns || 0) +
+              " turns</p></article>"
+          )
+          .join("") +
+        "</div>"
+      : "";
+  openSheet("CHAT HISTORY", current + past);
+}
+
+function openSettings() {
+  const englishVoices = state.voices.filter(
+    (v) => /^en([-_]|$)/i.test(v.lang) || /english/i.test(v.name)
+  );
+  const pool = englishVoices.length ? englishVoices : state.voices;
+  const voiceOptions = pool
+    .map(
+      (v) =>
+        '<option value="' +
+        escapeHtml(v.voiceURI) +
+        '"' +
+        (state.settings.voiceURI === v.voiceURI ? " selected" : "") +
+        ">" +
+        escapeHtml(v.name) +
+        " (" +
+        escapeHtml(v.lang) +
+        ")" +
+        (isProbablyMale(v) ? " · male" : "") +
+        "</option>"
+    )
+    .join("");
+  const langOptions = RECOGNITION_LANGUAGES.map(
+    (lang) =>
+      '<option value="' +
+      lang.tag +
+      '"' +
+      (state.settings.lang === lang.tag ? " selected" : "") +
+      ">" +
+      lang.label +
+      "</option>"
+  ).join("");
+
+  openSheet(
+    "SETTINGS",
+    '<label for="voice">Voice</label>' +
+      '<select id="voice"><option value="">Automatic male English voice</option>' +
+      voiceOptions +
+      "</select>" +
+      "<p>Voices come from your device. They differ on each phone and computer.</p>" +
+      '<button type="button" class="primary" id="test-voice">Test voice</button>' +
+      '<label for="rate">Speech speed (' +
+      Number(state.settings.rate).toFixed(2) +
+      ")</label>' +
+      '<input id="rate" type="range" min="0.75" max="1.15" step="0.05" value="' +
+      state.settings.rate +
+      '">' +
+      '<label for="lang">Recognition language</label>' +
+      '<select id="lang">' +
+      langOptions +
+      "</select>" +
+      "<p>Try English (Philippines). Chrome works best.</p>" +
+      '<label for="key">Optional Gemini key</label>' +
+      '<input id="key" type="password" autocomplete="off" value="' +
+      escapeHtml(state.settings.geminiKey || "") +
+      '" placeholder="Paste a free key, or leave empty">' +
+      "<p>Leave empty for the free path. A key stays only in this browser.</p>"
+  );
+
+  $("#voice")?.addEventListener("change", (e) => {
+    state.settings.voiceURI = e.target.value;
+    saveSettings();
+  });
+  $("#rate")?.addEventListener("input", (e) => {
+    state.settings.rate = Number(e.target.value);
+    saveSettings();
+    const label = document.querySelector('label[for="rate"]');
+    if (label) label.textContent = "Speech speed (" + state.settings.rate.toFixed(2) + ")";
+  });
+  $("#lang")?.addEventListener("change", (e) => {
+    state.settings.lang = e.target.value;
+    saveSettings();
+  });
+  $("#key")?.addEventListener("change", (e) => {
+    state.settings.geminiKey = e.target.value.trim();
+    saveSettings();
+  });
+  $("#test-voice")?.addEventListener("click", () => {
+    speak("Hello. This is a voice test from Osiris.");
+  });
+}
+
 function bindUI() {
-  $("#mic-btn")?.addEventListener("click", () => {
+  $("#mic")?.addEventListener("click", () => {
     if (state.active && state.phase !== "idle" && state.phase !== "summary") {
       endSession(false);
     } else {
@@ -568,55 +726,13 @@ function bindUI() {
     }
   });
 
-  $("#end-btn")?.addEventListener("click", () => endSession(true));
+  $("#end-session")?.addEventListener("click", () => endSession(true));
+  $("#history-btn")?.addEventListener("click", openHistory);
+  $("#settings-btn")?.addEventListener("click", openSettings);
+  $("#close-sheet")?.addEventListener("click", closeSheet);
 
-  $("#settings-btn")?.addEventListener("click", () => openPanel("settings-sheet"));
-  $("#history-btn")?.addEventListener("click", () => {
-    const box = $("#history-list");
-    if (box) {
-      try {
-        const list = JSON.parse(localStorage.getItem(SESSIONS_KEY) || "[]");
-        box.innerHTML = list.length
-          ? list
-              .map(
-                (s) =>
-                  `<div class="hist-item"><time>${new Date(s.at).toLocaleString()}</time> · ${escapeHtml(s.topic)} · ${s.turns} turns</div>`
-              )
-              .join("")
-          : "<p>No past sessions yet.</p>";
-      } catch {
-        box.innerHTML = "<p>No past sessions yet.</p>";
-      }
-    }
-    openPanel("history-sheet");
-  });
-
-  $("#backdrop")?.addEventListener("click", closePanel);
-  document.querySelectorAll("[data-close]").forEach((btn) => btn.addEventListener("click", closePanel));
-
-  $("#rate-range")?.addEventListener("input", (e) => {
-    state.settings.rate = Number(e.target.value);
-    $("#rate-value").textContent = state.settings.rate.toFixed(1);
-    saveSettings();
-  });
-
-  $("#voice-select")?.addEventListener("change", (e) => {
-    state.settings.voiceURI = e.target.value;
-    saveSettings();
-  });
-
-  $("#lang-select")?.addEventListener("change", (e) => {
-    state.settings.lang = e.target.value;
-    saveSettings();
-  });
-
-  $("#gemini-key")?.addEventListener("change", (e) => {
-    state.settings.geminiKey = e.target.value.trim();
-    saveSettings();
-  });
-
-  $("#test-voice")?.addEventListener("click", () => {
-    speak("Hello. This is a voice test from Osiris.");
+  $("#backdrop")?.addEventListener("click", (e) => {
+    if (e.target === $("#backdrop")) closeSheet();
   });
 
   $("#typed-form")?.addEventListener("submit", (e) => {
@@ -625,31 +741,27 @@ function bindUI() {
   });
 
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closePanel();
+    if (e.key === "Escape") closeSheet();
   });
 }
 
 function init() {
+  // Ensure sheet starts closed
+  closeSheet();
   loadSettings();
   populateTopics();
-  populateLanguages();
   loadVoices();
   if (window.speechSynthesis) {
     window.speechSynthesis.onvoiceschanged = loadVoices;
   }
-  const rate = $("#rate-range");
-  if (rate) {
-    rate.value = state.settings.rate;
-    $("#rate-value").textContent = Number(state.settings.rate).toFixed(1);
-  }
-  const gem = $("#gemini-key");
-  if (gem) gem.value = state.settings.geminiKey || "";
   updateClock();
-  setInterval(updateClock, 30000);
+  setInterval(updateClock, 15000);
   setPhase("idle");
   bindUI();
   state.reply = "Click the microphone to start practicing English with Osiris.";
   renderReply();
+  renderLive();
+  renderCorrections();
 }
 
 init();
